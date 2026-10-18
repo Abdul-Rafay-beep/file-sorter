@@ -8,6 +8,7 @@ if __name__ == '__main__':
         "image": "D:/test/images",
         'text/css': 'D:/test/css',
         'text': 'D:/test/txt',
+        'application': 'D:/test/application',
         'ignore': ['D:/test/images', 'D:/test/css', 'D:/test/txt']
     }
     dirreader.move_file()

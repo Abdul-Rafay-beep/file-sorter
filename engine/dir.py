@@ -1,26 +1,59 @@
+"""
+Useable Items:
+check_dir :: function -> Give list of children o a parent dir
+Dir :: class -> Saves parent and children node
+DirReader :: class -> Handles file Indexing and sorting.
+
+Sorting Rules: dict of rules
+Keys must be mimetype either broader or specific.
+Example:
+    broader: 'image'
+    specific: 'image/png'
+'ignore' key saves list of files or dirs to be ignored in DFS.
+Example sort_rule:
+{
+  'image': 'D:/test/images',
+  'image/svg': 'D:/test/images/svgs,
+  'application': 'D:/test/applications',
+  'application/javascript': 'D:/test/applications/js'
+  'ignore': [
+             'D:/test/.venv',
+             'D:/.gitignore
+            ]
+}
+File whose location rule is not defined (in the above example, all
+text file), will not touched.
+"""
 #========= Import =========
 lazy from mimetypes import guess_type
-lazy from os import path, makedirs, listdir
+lazy from os import path, makedirs, listdir, PathLike
 lazy from pathlib import Path
 
 #========== Exports =========
 __all__=['DirReader', 'check_dir', 'Dir']
 
 #======== Check dir ========
-def check_dir(dir:str):
+def check_dir(dir:str) -> list[str]:
+    """Provides list of absolute paths of children"""
+    # os.path.exists can handle str|int|bytes|os.PathLike.
+    # This whole module works on str, so the function restricts
+    # type to string only.
+    if dir.__class__ is not str:
+        return []
     if not path.exists(dir):
         return []
     l = listdir(dir)
-    for i in l:
-        l.insert(l.index(i), path.join(dir, i))
-        l.remove(i)
-    return l
+    return [path.join(dir, i) for i in l]
 
 #========== DFS ==========
 class Dir:
     """
     Used by program to save dir location and its child
-    in same identifier
+    in same identifier.
+    Attributes:
+        path -> str: absolute path of the parent dir
+
+        content -> list of absolute path of children.
     """
     __slots__=['path', 'content']
     def __init__(self, dir:str):
@@ -38,35 +71,44 @@ class DirReader:
                 access obj.main_dir
 
     stdout -> bool: Whether to show outputs of the process, on
-              terminals or not.
+              terminals or not. Add this either during object
+              creation of manually access obj.main_dir
 
-    sort_rule -> SortRule obj: Rules of where to sort
-                 files of different types.
+    sort_rule -> dict: Rules of where to sort
+                 files of different types. Add this using obj.sort_rule
+                 or pass it while using read_target.
 
-    _queue -> Search and Queue (index) all files in the main dir.
+    _queue -> Saves Queue (index) of all files in the main dir.
               Better is not to alter it, and let the system index
               them programmatically.
 
     Methods:
-        read_target: Create the Output directorys that aren't present,
+        read_target -> Create the Output directories that aren't present,
                      to prepare the enviroment.
                      Ask for providing sort rule or use self.sort_rule
-                     attribute.
+                     attribute instead
 
-        index: Use DFS algorithm to search all and queue all files.
+        index -> Use DFS algorithm to search all and queue all files.
 
+        move_file -> Start the file sorting process. By default, it
+                     automatically calls self.read_target() and self.index()
+                     This behavior is modifiable
     """
     __slots__=['main_dir', 'sort_rule', 'stdout', '_queue']
-    def __init__(self, main_dir:str, stdout:bool=True):
+    def __init__(self, main_dir:str, stdout:bool=False):
         """
         main_dir: The location of the dir containing
         unsorted file.
         stdout: Whether to use print statements
         """
+        # The default value of stdout is kept False, because most
+        # production ready programs doesn't uses cmd output.
+        # The stdout can also be captured using subprocess, to show
+        # in in-app console UI.
         self.main_dir = main_dir
         self.stdout = stdout
         self.sort_rule = None
-        self._queue = []
+        self._queue = set()
 
     #-------- Read Target ---------
     def read_target(self, sort_rule:dict=None):
@@ -83,7 +125,11 @@ class DirReader:
         if self.sort_rule:
             for key in self.sort_rule.keys():
                 if key == 'ignore':
+                    # Converted all files to pathlib.Path
+                    # This is because __DFS has to compare to
+                    # Paths to check whether it has to be ignored
                     self.sort_rule[key] = [Path(i) for i in self.sort_rule[key] if i.__class__ is str]
+
                 if not self.sort_rule[key].__class__ is str:
                     continue
                 if not path.exists(self.sort_rule[key]):
@@ -102,8 +148,11 @@ class DirReader:
         return self
 
     #-------- DFS algorithm ---------
-    def __DFS(self, dir:str = ''):
-        if dir and path.exists(dir):
+    # DFS was first tried to make as a function
+    # but it was found difficult is running recursive
+    # rule. Using it as method give robust polimorphism
+    def __DFS(self, dir:str = None):
+        if dir is not None and path.exists(dir):
             dirobj = Dir(dir)
         else:
             dirobj = Dir(self.main_dir)
@@ -111,13 +160,16 @@ class DirReader:
         for i in dirobj.content:
             if Path(i) in self.sort_rule.get('ignore', []):
                 continue
-            if path.isfile(i) and i not in self._queue:
-                self._queue.append(i)
+            if path.isfile(i):
+                self._queue.add(i)
             else:
                 try:
                     self.__DFS(i)
                 except RecursionError:
                     return self
+                except Exception as e:
+                    if self.stdout:
+                        print(e)
         return self
 
     #------- Move File --------
@@ -130,6 +182,10 @@ class DirReader:
         
         index: Run self.index() before proceeding. Pass False is
                runned already.
+
+        This function automatically run self.read_target() and
+        self.index(), so you not need to call them manually. To
+        prevent this, explicitly pass False to default arguments.
         """
         if read_target:
             self.read_target()
@@ -137,6 +193,8 @@ class DirReader:
             self.index()
         for i in self._queue:
             ty = guess_type(i)[0]
+            if ty is None:
+                continue
             target = self.sort_rule.get(ty)
             if target is None:
                 target = self.sort_rule.get(ty.split('/')[0])
@@ -149,5 +207,5 @@ class DirReader:
                     print(i , ' -- Moved successfully')
             except Exception as e:
                 if self.stdout:
-                    print('[Error]: ', e)
+                    print(e)
         self._queue.clear()
