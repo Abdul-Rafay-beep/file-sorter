@@ -25,7 +25,7 @@ File whose location rule is not defined (in the above example, all
 text file), will not touched.
 """
 #========= Import =========
-lazy from mimetypes import guess_type
+lazy from mimetypes import guess_file_type
 lazy from os import path, makedirs, listdir, PathLike
 lazy from pathlib import Path
 
@@ -128,7 +128,7 @@ class DirReader:
                     # Converted all files to pathlib.Path
                     # This is because __DFS has to compare to
                     # Paths to check whether it has to be ignored
-                    self.sort_rule[key] = [Path(i) for i in self.sort_rule[key] if i.__class__ is str]
+                    self.sort_rule[key] = [Path(i) for i in self.sort_rule[key] if i.__class__ in (str,Path)]
 
                 if not self.sort_rule[key].__class__ is str:
                     continue
@@ -192,7 +192,7 @@ class DirReader:
         if index:
             self.index()
         for i in self._queue:
-            ty = guess_type(i)[0]
+            ty = guess_file_type(i)[0]
             if ty is None:
                 continue
             target = self.sort_rule.get(ty)
